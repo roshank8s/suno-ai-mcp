@@ -61,6 +61,13 @@ async def _do_generate(
     model: str | None,
     negative_tags: str | None,
     wait_for_audio: bool,
+    persona_id: str | None = None,
+    artist_clip_id: str | None = None,
+    artist_start_s: float | None = None,
+    artist_end_s: float | None = None,
+    cover_clip_id: str | None = None,
+    cover_start_s: float | None = None,
+    cover_end_s: float | None = None,
 ) -> dict[str, Any]:
     """Shared generate path used by both simple + custom tools."""
     mode = _gen_mode()
@@ -79,6 +86,13 @@ async def _do_generate(
                     make_instrumental=make_instrumental,
                     model=chosen_model,
                     negative_tags=negative_tags,
+                    persona_id=persona_id,
+                    artist_clip_id=artist_clip_id,
+                    artist_start_s=artist_start_s,
+                    artist_end_s=artist_end_s,
+                    cover_clip_id=cover_clip_id,
+                    cover_start_s=cover_start_s,
+                    cover_end_s=cover_end_s,
                 )
                 if wait_for_audio and clips:
                     ids = [c["id"] for c in clips if c.get("id")]
@@ -150,10 +164,27 @@ async def custom_generate(
     title: Annotated[str, Field(description="Title of the song.")] = "",
     make_instrumental: Annotated[bool, Field(description="Generate without vocals.")] = False,
     model: Annotated[str | None, Field(description="Model name.")] = None,
-    negative_tags: Annotated[str, Field(description="Comma-separated styles to avoid.")] = "",
+    negative_tags: Annotated[str, Field(description="Comma-separated styles to avoid (the 'Exclude styles' field).")] = "",
     wait_for_audio: Annotated[bool, Field(description="Poll until clips finish.")] = False,
+    persona_id: Annotated[
+        str | None,
+        Field(description="Apply a saved persona (voice/style). See list_personas."),
+    ] = None,
+    artist_clip_id: Annotated[
+        str | None,
+        Field(description="Personalize from an existing song ('Add Voice'): the source clip ID."),
+    ] = None,
+    artist_start_s: Annotated[float | None, Field(description="Start sec of the artist section.")] = None,
+    artist_end_s: Annotated[float | None, Field(description="End sec of the artist section.")] = None,
+    cover_clip_id: Annotated[
+        str | None, Field(description="Cover an existing song: the source clip ID.")
+    ] = None,
+    cover_start_s: Annotated[float | None, Field(description="Start sec of the cover section.")] = None,
+    cover_end_s: Annotated[float | None, Field(description="End sec of the cover section.")] = None,
 ) -> dict[str, Any]:
-    """Generate a song in Custom mode with explicit lyrics, tags, and title."""
+    """Generate a song in Custom/Advanced mode with explicit lyrics, style tags,
+    and title. Supports the Personalize options: persona_id (saved voice/style),
+    artist_clip_id (personalize from a song), and cover_clip_id (cover a song)."""
     return await _do_generate(
         lyrics,
         custom_mode=True,
@@ -163,6 +194,13 @@ async def custom_generate(
         model=model,
         negative_tags=negative_tags or None,
         wait_for_audio=wait_for_audio,
+        persona_id=persona_id,
+        artist_clip_id=artist_clip_id,
+        artist_start_s=artist_start_s,
+        artist_end_s=artist_end_s,
+        cover_clip_id=cover_clip_id,
+        cover_start_s=cover_start_s,
+        cover_end_s=cover_end_s,
     )
 
 
@@ -201,6 +239,16 @@ async def generate_lyrics(
     """Generate lyrics from a theme. Returns the completed lyric text."""
     async with SunoClient(_cookie()) as client:
         return await client.generate_lyrics(prompt)
+
+
+@mcp.tool()
+async def generate_lyrics_pair(
+    prompt: Annotated[str, Field(description="Theme or description for the lyrics.")],
+) -> dict[str, Any]:
+    """The Advanced Create page's 'Generate lyrics' button: returns TWO lyric
+    options (A/B) to choose from."""
+    async with SunoClient(_cookie()) as client:
+        return await client.generate_lyrics_pair(prompt)
 
 
 @mcp.tool()

@@ -634,6 +634,49 @@ class SunoClient:
             waited += poll_interval
         raise RuntimeError(f"Lyrics generation timed out after {max_wait}s")
 
+    async def generate_lyrics_pair(
+        self, prompt: str, poll_interval: float = 2.0, max_wait: float = 60.0
+    ) -> dict[str, Any]:
+        """
+        The Create page "Generate lyrics" button: returns TWO lyric options to
+        pick from. Polls both until complete and returns the finished text.
+        """
+        resp = await self._api(
+            "POST",
+            "/api/generate/lyrics-pair",
+            json_body={"prompt": prompt, "create_session_token": str(uuid.uuid4())},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        ids = [i for i in (data.get("lyrics_a_id"), data.get("lyrics_b_id")) if i]
+
+        async def _poll(lid: str) -> dict[str, Any]:
+            waited = 0.0
+            last: dict[str, Any] = {}
+            while waited < max_wait:
+                p = await self._api("GET", f"/api/generate/lyrics/{lid}")
+                if p.status_code == 200:
+                    last = p.json()
+                    if last.get("status") == "complete":
+                        return last
+                await asyncio.sleep(poll_interval)
+                waited += poll_interval
+            return last
+
+        options = []
+        for lid in ids:
+            d = await _poll(lid)
+            options.append(
+                {
+                    "id": lid,
+                    "title": d.get("title"),
+                    "text": d.get("text"),
+                    "tags": d.get("tags"),
+                    "status": d.get("status"),
+                }
+            )
+        return {"request_id": data.get("lyrics_request_id"), "options": options}
+
     async def generate(
         self,
         prompt: str,
@@ -648,10 +691,23 @@ class SunoClient:
         task: str | None = None,
         continue_clip_id: str | None = None,
         continue_at: float | None = None,
+        persona_id: str | None = None,
+        artist_clip_id: str | None = None,
+        artist_start_s: float | None = None,
+        artist_end_s: float | None = None,
+        cover_clip_id: str | None = None,
+        cover_start_s: float | None = None,
+        cover_end_s: float | None = None,
     ) -> list[dict[str, Any]]:
         """
         Send the generation request to Suno.
         Raises SunoCaptchaRequired if Suno demands a captcha and we don't have one.
+
+        Advanced "Personalize" options (match the web Create page):
+          - persona_id: apply a saved persona (voice/style).
+          - artist_clip_id (+ artist_start_s/end_s): personalize from a section
+            of an existing song ("Add Voice").
+          - cover_clip_id (+ cover_start_s/end_s): cover an existing song.
         """
         if captcha_token is None and await self.captcha_required():
             raise SunoCaptchaRequired(
@@ -676,6 +732,17 @@ class SunoClient:
             payload["prompt"] = prompt
         else:
             payload["gpt_description_prompt"] = prompt
+
+        if persona_id:
+            payload["persona_id"] = persona_id
+        if artist_clip_id:
+            payload["artist_clip_id"] = artist_clip_id
+            payload["artist_start_s"] = artist_start_s
+            payload["artist_end_s"] = artist_end_s
+        if cover_clip_id:
+            payload["cover_clip_id"] = cover_clip_id
+            payload["cover_start_s"] = cover_start_s
+            payload["cover_end_s"] = cover_end_s
 
         resp = await self._api(
             "POST", "/api/generate/v2/", json_body=payload, timeout=15.0

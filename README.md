@@ -186,7 +186,7 @@ the `get_credits` tool.)
 | Tool | Description |
 | --- | --- |
 | `generate_music` | Generate from a free-form prompt (Simple mode) — api → browser fallback |
-| `custom_generate` | Custom mode (explicit lyrics + tags + title) — api → browser fallback |
+| `custom_generate` | Advanced mode: explicit lyrics + style + title, plus Personalize options (`persona_id`, `artist_clip_id`, `cover_clip_id`) — api → browser fallback |
 | `extend_song` | Extend an existing clip from a timestamp |
 | `concatenate_song` | Stitch an extended clip into a full song |
 
@@ -195,6 +195,7 @@ the `get_credits` tool.)
 | Tool | Description |
 | --- | --- |
 | `generate_lyrics` | Generate standalone lyrics from a theme |
+| `generate_lyrics_pair` | "Generate lyrics" button: returns two A/B options |
 | `get_song_lyrics` | Lyric text + style tags for a clip |
 | `get_aligned_lyrics` | Word-level lyric timing + waveform |
 | `cowrite_lyrics` | AI co-write: rewrite/continue selected lyrics in context |
@@ -240,6 +241,21 @@ the `get_credits` tool.)
 
 All tools except generation use the cookie/JWT **API path**. Generation tries the
 API first and falls back to the stealth browser on captcha.
+
+### Advanced generation workflow
+
+These map to the web Create page's **Advanced** mode (lyrics + style + title):
+
+1. **Lyrics** — write your own, or use `generate_lyrics_pair` ("Generate lyrics",
+   two options) / `cowrite_lyrics` ("Enhance lyrics", e.g. *"make it happier"*).
+2. **Style** — pass `tags` (the styles box) and `negative_tags` (Exclude styles).
+   Use `get_recommend_styles` for the suggested style chips.
+3. **Personalize** — apply a saved voice/style with `persona_id` (see
+   `list_personas`), personalize from a song with `artist_clip_id`
+   (+ `artist_start_s`/`artist_end_s`, the "Add Voice" feature), or cover a song
+   with `cover_clip_id`.
+4. **Generate** — call `custom_generate` with the above, then `download_clip` /
+   `download_lyrics` to save the result.
 
 ---
 
