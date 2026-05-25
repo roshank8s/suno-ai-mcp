@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Annotated, Any
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
@@ -18,7 +19,16 @@ from .suno_client import (
     SunoClient,
 )
 
+# Load env. The project .env is treated as the source of truth for credentials:
+# its non-empty values override anything injected via the MCP client config's
+# `env` block, so a refreshed SUNO_COOKIE in .env takes effect on restart
+# (load_dotenv alone won't override an already-set process env var).
 load_dotenv()
+_PROJECT_ENV = Path(__file__).resolve().parents[2] / ".env"
+if _PROJECT_ENV.exists():
+    for _key, _val in dotenv_values(_PROJECT_ENV).items():
+        if _val:
+            os.environ[_key] = _val
 
 logging.basicConfig(
     level=os.environ.get("SUNO_LOG_LEVEL", "INFO").upper(),
