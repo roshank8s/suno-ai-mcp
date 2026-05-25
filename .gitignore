@@ -1,0 +1,28 @@
+# --- Secrets — never commit these ---
+.env
+.env.local
+cookies.json
+*.cookies.json
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+
+# --- Browser automation artifacts ---
+.cloakbrowser/
+
+# --- Local editor / tooling config ---
+.claude/settings.local.json
+.idea/
+.vscode/
+
+# --- Stray temp artifacts ---
+.status
+C:Users*/
