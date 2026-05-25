@@ -181,16 +181,65 @@ the `get_credits` tool.)
 
 ## Tools exposed
 
-| Tool | Description | Path |
-| --- | --- | --- |
-| `generate_music` | Generate from a free-form prompt (Simple mode) | api → browser fallback |
-| `custom_generate` | Custom mode (explicit lyrics + tags + title) | api → browser fallback |
-| `generate_lyrics` | Lyrics-only generation | api |
-| `extend_song` | Extend an existing clip from a timestamp | api |
-| `concatenate_song` | Stitch an extended clip into a full song | api |
-| `get_credits` | Credit balance and monthly usage | api |
-| `list_songs` | List your songs / poll status by clip IDs | api |
-| `get_clip` | Full metadata for a single clip | api |
+**Generation**
+
+| Tool | Description |
+| --- | --- |
+| `generate_music` | Generate from a free-form prompt (Simple mode) — api → browser fallback |
+| `custom_generate` | Custom mode (explicit lyrics + tags + title) — api → browser fallback |
+| `extend_song` | Extend an existing clip from a timestamp |
+| `concatenate_song` | Stitch an extended clip into a full song |
+
+**Lyrics**
+
+| Tool | Description |
+| --- | --- |
+| `generate_lyrics` | Generate standalone lyrics from a theme |
+| `get_song_lyrics` | Lyric text + style tags for a clip |
+| `get_aligned_lyrics` | Word-level lyric timing + waveform |
+| `cowrite_lyrics` | AI co-write: rewrite/continue selected lyrics in context |
+| `lyrics_infill` | Fill a gap in lyrics given prefix/suffix |
+
+**Library & discovery (read-only)**
+
+| Tool | Description |
+| --- | --- |
+| `get_user` | Logged-in user's profile |
+| `get_credits` | Credit balance, plan, monthly usage, free-gen allowances |
+| `list_songs` / `get_clip` | List songs / single-clip metadata |
+| `get_songs_by_ids` | Batch-fetch clips by ID |
+| `get_similar_songs` | Songs similar to a clip |
+| `search_songs` | Search public Suno content |
+| `list_playlists` / `get_playlist` | Your playlists / one playlist with clips |
+| `list_projects` | Your projects (workspaces) |
+| `list_personas` | Your saved voice/style personas |
+| `get_recommend_styles` | Suno's suggested style tags |
+
+**Audio editing** *(creates new clips; may consume credits)*
+
+| Tool | Description |
+| --- | --- |
+| `separate_stems` | Split a clip into stems (vocals / instrumental) |
+| `crop_clip` | Keep or remove a `[start, end]` seconds range |
+| `fade_clip` | Apply fade-in / fade-out |
+| `adjust_speed` | Change playback speed (optionally keep pitch) |
+
+**Downloads**
+
+| Tool | Description |
+| --- | --- |
+| `download_clip` | Save a clip's audio to a local file |
+| `download_lyrics` | Save lyrics to a file (`txt` plain or `lrc` timed) |
+
+**Clip management** *(destructive)*
+
+| Tool | Description |
+| --- | --- |
+| `trash_clip` | Move clips to trash, or restore (`trash=false`) |
+| `delete_clip` | Permanently delete clips — **cannot be undone** |
+
+All tools except generation use the cookie/JWT **API path**. Generation tries the
+API first and falls back to the stealth browser on captcha.
 
 ---
 

@@ -30,6 +30,7 @@ import logging
 import time
 import uuid
 from http.cookies import SimpleCookie
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -109,6 +110,37 @@ def _pick_active_clerk_cookies(cookies: dict[str, str]) -> tuple[str | None, str
     if best:
         return best[2], best[1]
     return cookies.get("__client"), None
+
+
+def _build_lrc(aligned: dict[str, Any], title: str | None) -> str:
+    """
+    Best-effort LRC (timed lyrics) from an aligned_lyrics/v2 response.
+    Falls back to the plain aligned_lyrics text if no per-word timing is found.
+    """
+    words = aligned.get("aligned_words") or []
+
+    def _start(word: dict[str, Any]) -> float | None:
+        for key in ("start_s", "start_time", "start", "begin_s", "p_start"):
+            val = word.get(key)
+            if isinstance(val, (int, float)):
+                return float(val)
+        return None
+
+    if not any(_start(w) is not None for w in words):
+        return aligned.get("aligned_lyrics") or ""
+
+    lines: list[str] = []
+    if title:
+        lines.append(f"[ti:{title}]")
+    for w in words:
+        start = _start(w)
+        text = (w.get("word") or w.get("text") or "").strip()
+        if start is None or not text:
+            continue
+        minutes = int(start // 60)
+        seconds = start - minutes * 60
+        lines.append(f"[{minutes:02d}:{seconds:05.2f}]{text}")
+    return "\n".join(lines)
 
 
 class SunoClient:
@@ -291,10 +323,285 @@ class SunoClient:
         data = resp.json()
         return {
             "credits_left": data.get("total_credits_left"),
-            "period": data.get("period"),
+            "credits": data.get("credits"),
             "monthly_limit": data.get("monthly_limit"),
             "monthly_usage": data.get("monthly_usage"),
+            "period": data.get("period"),
+            "period_end": data.get("period_end"),
+            "renews_on": data.get("renews_on"),
+            "plan": data.get("plan"),
+            "subscription_type": data.get("subscription_type"),
+            "is_active": data.get("is_active"),
+            "free_credits": {
+                "persona_clips": data.get("free_persona_clips_remaining"),
+                "cover_clips": data.get("free_cover_clips_remaining"),
+                "remasters": data.get("free_remasters_remaining"),
+            },
         }
+
+    # ------------------------------------------------------------------ #
+    # Generic JSON helpers used by the endpoints added below             #
+    # ------------------------------------------------------------------ #
+
+    async def _get_json(
+        self, path: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        resp = await self._api("GET", path, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _post_json(
+        self,
+        path: str,
+        body: dict[str, Any] | None = None,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        resp = await self._api("POST", path, json_body=body or {}, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+
+    # ------------------------------------------------------------------ #
+    # Account / library / discovery (read-only)                          #
+    # ------------------------------------------------------------------ #
+
+    async def get_user(self) -> dict[str, Any]:
+        """Return the logged-in user's profile (id, handle, display name, email)."""
+        return await self._get_json("/api/user/me")
+
+    async def list_playlists(self, page: int = 1) -> dict[str, Any]:
+        """List the user's own playlists."""
+        return await self._get_json("/api/playlist/me", params={"page": page})
+
+    async def get_playlist(self, playlist_id: str, page: int = 1) -> dict[str, Any]:
+        """Get a single playlist with its clips."""
+        return await self._get_json(
+            f"/api/playlist/{playlist_id}", params={"page": page}
+        )
+
+    async def list_projects(self) -> dict[str, Any]:
+        """List the user's projects (workspaces)."""
+        return await self._get_json("/api/project/me")
+
+    async def list_personas(self, page: int = 1) -> dict[str, Any]:
+        """List the user's voice/style personas."""
+        return await self._get_json("/api/persona/get-personas/", params={"page": page})
+
+    async def search_songs(
+        self,
+        term: str,
+        search_type: str = "public_song",
+        size: int = 20,
+        from_index: int = 0,
+        rank_by: str = "most_relevant",
+    ) -> dict[str, Any]:
+        """Search public Suno content. search_type is the API enum (e.g. public_song)."""
+        body = {
+            "search_queries": [
+                {
+                    "name": search_type,
+                    "search_type": search_type,
+                    "term": term,
+                    "from_index": from_index,
+                    "size": size,
+                    "rank_by": rank_by,
+                }
+            ]
+        }
+        return await self._post_json("/api/search/", body)
+
+    async def get_similar(self, clip_id: str) -> dict[str, Any]:
+        """Return clips similar to the given clip."""
+        return await self._get_json("/api/clips/get_similar/", params={"id": clip_id})
+
+    async def get_songs_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        """Batch-fetch clips by id (normalized like list_songs)."""
+        data = await self._get_json(
+            "/api/clips/get_songs_by_ids", params={"ids": ",".join(ids)}
+        )
+        return self._normalize_clips(data.get("clips", []))
+
+    async def get_recommend_styles(self) -> dict[str, Any]:
+        """Suno's suggested style tags (default_styles + co-occurring styles)."""
+        return await self._get_json("/api/generate/get_recommend_styles")
+
+    # ------------------------------------------------------------------ #
+    # Lyrics tooling                                                     #
+    # ------------------------------------------------------------------ #
+
+    async def get_aligned_lyrics(self, clip_id: str) -> dict[str, Any]:
+        """Word-level lyric timing + waveform for a finished clip."""
+        return await self._get_json(f"/api/gen/{clip_id}/aligned_lyrics/v2/")
+
+    async def get_song_lyrics(self, clip_id: str) -> dict[str, Any]:
+        """Return the lyric text + style metadata for a clip."""
+        clip = await self.get_clip(clip_id)
+        md = clip.get("metadata") or {}
+        return {
+            "id": clip.get("id"),
+            "title": clip.get("title"),
+            "lyrics": md.get("prompt"),
+            "description_prompt": md.get("gpt_description_prompt"),
+            "tags": md.get("tags"),
+        }
+
+    async def cowrite_lyrics(
+        self,
+        instruction: str,
+        selected: str = "",
+        context_before: str = "",
+        context_after: str = "",
+        title: str = "",
+        style: str = "",
+    ) -> dict[str, Any]:
+        """AI co-writing: rewrite/continue selected lyrics given surrounding context."""
+        body = {
+            "selected": selected,
+            "context_before": context_before,
+            "context_after": context_after,
+            "instruction": instruction,
+            "title": title,
+            "style": style,
+        }
+        return await self._post_json("/api/generate/cowrite-lyrics/", body)
+
+    async def lyrics_infill(
+        self,
+        prompt: str,
+        context_lyrics_prefix: str = "",
+        context_lyrics_edit: str = "",
+        context_lyrics_suffix: str = "",
+        title: str = "",
+    ) -> dict[str, Any]:
+        """Fill in lyrics for a gap given prefix/edit/suffix context."""
+        body = {
+            "prompt": prompt,
+            "context_lyrics_prefix": context_lyrics_prefix,
+            "context_lyrics_edit": context_lyrics_edit,
+            "context_lyrics_suffix": context_lyrics_suffix,
+            "title": title,
+        }
+        return await self._post_json("/api/generate/lyrics-infill/", body)
+
+    # ------------------------------------------------------------------ #
+    # Audio editing (these create new clips / jobs and may use credits)  #
+    # ------------------------------------------------------------------ #
+
+    async def separate_stems(self, clip_id: str) -> dict[str, Any]:
+        """Split a clip into stems (e.g. vocals / instrumental)."""
+        return await self._post_json(f"/api/edit/stems/{clip_id}")
+
+    async def crop_clip(
+        self,
+        clip_id: str,
+        crop_start_s: float,
+        crop_end_s: float,
+        is_crop_remove: bool = False,
+        title: str = "",
+    ) -> dict[str, Any]:
+        """Crop a clip to (or remove) the [start, end] seconds range."""
+        body = {
+            "crop_start_s": crop_start_s,
+            "crop_end_s": crop_end_s,
+            "is_crop_remove": is_crop_remove,
+            "title": title,
+        }
+        return await self._post_json(f"/api/edit/crop/{clip_id}", body)
+
+    async def fade_clip(
+        self,
+        clip_id: str,
+        fade_in_time: float = 0.0,
+        fade_out_time: float = 0.0,
+        title: str = "",
+    ) -> dict[str, Any]:
+        """Apply fade-in / fade-out (seconds) to a clip."""
+        body = {
+            "fade_in_time": fade_in_time,
+            "fade_out_time": fade_out_time,
+            "title": title,
+        }
+        return await self._post_json(f"/api/edit/fade/{clip_id}", body)
+
+    async def adjust_speed(
+        self,
+        clip_id: str,
+        speed_multiplier: float,
+        keep_pitch: bool = True,
+        title: str = "",
+    ) -> dict[str, Any]:
+        """Change playback speed (1.0 = original). keep_pitch preserves pitch."""
+        body = {
+            "clip_id": clip_id,
+            "speed_multiplier": speed_multiplier,
+            "keep_pitch": keep_pitch,
+            "title": title,
+        }
+        return await self._post_json("/api/clips/adjust-speed/", body)
+
+    # ------------------------------------------------------------------ #
+    # Downloads                                                          #
+    # ------------------------------------------------------------------ #
+
+    async def get_download_url(self, clip_id: str) -> str:
+        """Resolve the official download URL for a clip's audio."""
+        data = await self._get_json(f"/api/download/clip/{clip_id}")
+        url = data.get("download_url")
+        if not url:
+            raise RuntimeError(f"No download_url returned for clip {clip_id}: {data}")
+        return url
+
+    async def download_clip(self, clip_id: str, output_path: str) -> dict[str, Any]:
+        """Download a clip's audio to a local file."""
+        assert self._client is not None
+        url = await self.get_download_url(clip_id)
+        resp = await self._client.get(url, timeout=120.0)
+        resp.raise_for_status()
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(resp.content)
+        return {
+            "clip_id": clip_id,
+            "path": str(path.resolve()),
+            "bytes": len(resp.content),
+            "download_url": url,
+        }
+
+    async def download_lyrics(
+        self, clip_id: str, output_path: str, fmt: str = "txt"
+    ) -> dict[str, Any]:
+        """Save a clip's lyrics to a file. fmt='txt' (plain) or 'lrc' (timed)."""
+        info = await self.get_song_lyrics(clip_id)
+        if fmt == "lrc":
+            aligned = await self.get_aligned_lyrics(clip_id)
+            content = _build_lrc(aligned, info.get("title"))
+        else:
+            content = info.get("lyrics") or ""
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return {
+            "clip_id": clip_id,
+            "path": str(path.resolve()),
+            "format": fmt,
+            "title": info.get("title"),
+            "chars": len(content),
+        }
+
+    # ------------------------------------------------------------------ #
+    # Clip management (destructive)                                      #
+    # ------------------------------------------------------------------ #
+
+    async def trash_clip(
+        self, clip_ids: list[str], trash: bool = True
+    ) -> dict[str, Any]:
+        """Move clips to trash (trash=True) or restore them (trash=False)."""
+        return await self._post_json(
+            "/api/gen/trash", {"trash": trash, "clip_ids": clip_ids}
+        )
+
+    async def delete_clip(self, ids: list[str], reason: str = "") -> dict[str, Any]:
+        """Permanently delete clips. This cannot be undone."""
+        return await self._post_json("/api/clips/delete/", {"ids": ids, "reason": reason})
 
     async def get_songs(self, song_ids: list[str] | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {}

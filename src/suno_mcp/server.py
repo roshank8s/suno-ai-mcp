@@ -238,6 +238,267 @@ async def concatenate_song(
         return await client.concatenate(clip_id)
 
 
+# --------------------------------------------------------------------------- #
+# Account / library / discovery (read-only)                                    #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def get_user() -> dict[str, Any]:
+    """Return the logged-in Suno user's profile (id, handle, display name)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_user()
+
+
+@mcp.tool()
+async def list_playlists(
+    page: Annotated[int, Field(description="Page number (1-based).")] = 1,
+) -> dict[str, Any]:
+    """List your own playlists."""
+    async with SunoClient(_cookie()) as client:
+        return await client.list_playlists(page)
+
+
+@mcp.tool()
+async def get_playlist(
+    playlist_id: Annotated[str, Field(description="The playlist ID.")],
+    page: Annotated[int, Field(description="Page of clips to return.")] = 1,
+) -> dict[str, Any]:
+    """Get a single playlist and its clips."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_playlist(playlist_id, page)
+
+
+@mcp.tool()
+async def list_projects() -> dict[str, Any]:
+    """List your projects (workspaces)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.list_projects()
+
+
+@mcp.tool()
+async def list_personas(
+    page: Annotated[int, Field(description="Page number (1-based).")] = 1,
+) -> dict[str, Any]:
+    """List your saved voice/style personas."""
+    async with SunoClient(_cookie()) as client:
+        return await client.list_personas(page)
+
+
+@mcp.tool()
+async def search_songs(
+    term: Annotated[str, Field(description="Search text.")],
+    search_type: Annotated[
+        str, Field(description="API search enum, e.g. 'public_song'.")
+    ] = "public_song",
+    size: Annotated[int, Field(description="Number of results.")] = 20,
+    from_index: Annotated[int, Field(description="Result offset for paging.")] = 0,
+) -> dict[str, Any]:
+    """Search public Suno songs (and other content types via search_type)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.search_songs(
+            term, search_type=search_type, size=size, from_index=from_index
+        )
+
+
+@mcp.tool()
+async def get_similar_songs(
+    clip_id: Annotated[str, Field(description="Clip ID to find similar songs for.")],
+) -> dict[str, Any]:
+    """Return songs similar to a given clip."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_similar(clip_id)
+
+
+@mcp.tool()
+async def get_songs_by_ids(
+    song_ids: Annotated[list[str], Field(description="Clip IDs to fetch.")],
+) -> list[dict[str, Any]]:
+    """Batch-fetch full metadata for multiple clip IDs."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_songs_by_ids(song_ids)
+
+
+@mcp.tool()
+async def get_recommend_styles() -> dict[str, Any]:
+    """Suno's recommended style tags (useful for crafting prompts)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_recommend_styles()
+
+
+# --------------------------------------------------------------------------- #
+# Lyrics tooling                                                               #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def get_aligned_lyrics(
+    clip_id: Annotated[str, Field(description="Clip ID of a finished song.")],
+) -> dict[str, Any]:
+    """Word-level lyric timing (and waveform) for a finished clip."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_aligned_lyrics(clip_id)
+
+
+@mcp.tool()
+async def get_song_lyrics(
+    clip_id: Annotated[str, Field(description="Clip ID.")],
+) -> dict[str, Any]:
+    """Return a clip's lyric text, title, and style tags."""
+    async with SunoClient(_cookie()) as client:
+        return await client.get_song_lyrics(clip_id)
+
+
+@mcp.tool()
+async def cowrite_lyrics(
+    instruction: Annotated[str, Field(description="What to do, e.g. 'make the chorus punchier'.")],
+    selected: Annotated[str, Field(description="The lyric text to rewrite/extend.")] = "",
+    context_before: Annotated[str, Field(description="Lyrics before the selection.")] = "",
+    context_after: Annotated[str, Field(description="Lyrics after the selection.")] = "",
+    title: Annotated[str, Field(description="Song title for context.")] = "",
+    style: Annotated[str, Field(description="Style tags for context.")] = "",
+) -> dict[str, Any]:
+    """AI co-write: rewrite or continue selected lyrics given surrounding context."""
+    async with SunoClient(_cookie()) as client:
+        return await client.cowrite_lyrics(
+            instruction=instruction,
+            selected=selected,
+            context_before=context_before,
+            context_after=context_after,
+            title=title,
+            style=style,
+        )
+
+
+@mcp.tool()
+async def lyrics_infill(
+    prompt: Annotated[str, Field(description="Instruction for the gap to fill.")],
+    context_lyrics_prefix: Annotated[str, Field(description="Lyrics before the gap.")] = "",
+    context_lyrics_edit: Annotated[str, Field(description="Existing text in the gap to replace.")] = "",
+    context_lyrics_suffix: Annotated[str, Field(description="Lyrics after the gap.")] = "",
+    title: Annotated[str, Field(description="Song title for context.")] = "",
+) -> dict[str, Any]:
+    """Fill in a gap in lyrics given the surrounding prefix/suffix."""
+    async with SunoClient(_cookie()) as client:
+        return await client.lyrics_infill(
+            prompt=prompt,
+            context_lyrics_prefix=context_lyrics_prefix,
+            context_lyrics_edit=context_lyrics_edit,
+            context_lyrics_suffix=context_lyrics_suffix,
+            title=title,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Audio editing (creates new clips/jobs; may consume credits)                  #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def separate_stems(
+    clip_id: Annotated[str, Field(description="Clip ID to split into stems.")],
+) -> dict[str, Any]:
+    """Separate a clip into stems (e.g. vocals / instrumental)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.separate_stems(clip_id)
+
+
+@mcp.tool()
+async def crop_clip(
+    clip_id: Annotated[str, Field(description="Clip ID to crop.")],
+    crop_start_s: Annotated[float, Field(description="Start of range in seconds.")],
+    crop_end_s: Annotated[float, Field(description="End of range in seconds.")],
+    is_crop_remove: Annotated[
+        bool, Field(description="If true, remove the range instead of keeping it.")
+    ] = False,
+    title: Annotated[str, Field(description="Title for the new clip.")] = "",
+) -> dict[str, Any]:
+    """Crop a clip to (or remove) a [start, end] seconds range."""
+    async with SunoClient(_cookie()) as client:
+        return await client.crop_clip(
+            clip_id, crop_start_s, crop_end_s, is_crop_remove=is_crop_remove, title=title
+        )
+
+
+@mcp.tool()
+async def fade_clip(
+    clip_id: Annotated[str, Field(description="Clip ID to edit.")],
+    fade_in_time: Annotated[float, Field(description="Fade-in length in seconds.")] = 0.0,
+    fade_out_time: Annotated[float, Field(description="Fade-out length in seconds.")] = 0.0,
+    title: Annotated[str, Field(description="Title for the new clip.")] = "",
+) -> dict[str, Any]:
+    """Apply fade-in / fade-out to a clip."""
+    async with SunoClient(_cookie()) as client:
+        return await client.fade_clip(
+            clip_id, fade_in_time=fade_in_time, fade_out_time=fade_out_time, title=title
+        )
+
+
+@mcp.tool()
+async def adjust_speed(
+    clip_id: Annotated[str, Field(description="Clip ID to edit.")],
+    speed_multiplier: Annotated[float, Field(description="Speed factor (1.0 = original).")],
+    keep_pitch: Annotated[bool, Field(description="Preserve original pitch.")] = True,
+    title: Annotated[str, Field(description="Title for the new clip.")] = "",
+) -> dict[str, Any]:
+    """Change a clip's playback speed."""
+    async with SunoClient(_cookie()) as client:
+        return await client.adjust_speed(
+            clip_id, speed_multiplier, keep_pitch=keep_pitch, title=title
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Downloads                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def download_clip(
+    clip_id: Annotated[str, Field(description="Clip ID to download.")],
+    output_path: Annotated[str, Field(description="Local file path to write the audio to (e.g. C:/tmp/song.mp3).")],
+) -> dict[str, Any]:
+    """Download a clip's audio file to disk. Returns the saved path and size."""
+    async with SunoClient(_cookie()) as client:
+        return await client.download_clip(clip_id, output_path)
+
+
+@mcp.tool()
+async def download_lyrics(
+    clip_id: Annotated[str, Field(description="Clip ID.")],
+    output_path: Annotated[str, Field(description="Local file path to write lyrics to.")],
+    fmt: Annotated[str, Field(description="'txt' for plain lyrics or 'lrc' for timed lyrics.")] = "txt",
+) -> dict[str, Any]:
+    """Save a clip's lyrics to a file (plain text or timed .lrc)."""
+    async with SunoClient(_cookie()) as client:
+        return await client.download_lyrics(clip_id, output_path, fmt=fmt)
+
+
+# --------------------------------------------------------------------------- #
+# Clip management (destructive)                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@mcp.tool()
+async def trash_clip(
+    clip_ids: Annotated[list[str], Field(description="Clip IDs to trash or restore.")],
+    trash: Annotated[bool, Field(description="True to move to trash, False to restore.")] = True,
+) -> dict[str, Any]:
+    """Move clips to trash (reversible) or restore them."""
+    async with SunoClient(_cookie()) as client:
+        return await client.trash_clip(clip_ids, trash=trash)
+
+
+@mcp.tool()
+async def delete_clip(
+    clip_ids: Annotated[list[str], Field(description="Clip IDs to permanently delete.")],
+    reason: Annotated[str, Field(description="Optional reason string.")] = "",
+) -> dict[str, Any]:
+    """Permanently delete clips. THIS CANNOT BE UNDONE."""
+    async with SunoClient(_cookie()) as client:
+        return await client.delete_clip(clip_ids, reason=reason)
+
+
 def main() -> None:
     """Entry point used by `suno-mcp` script and `python -m suno_mcp`."""
     mcp.run()
